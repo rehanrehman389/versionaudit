@@ -6,12 +6,16 @@ import frappe
 from frappe.utils import get_datetime
 
 def execute(filters=None):
-    doctype = filters.get("doctype", "Contact")  # Default to Contact if doctype is not provided
+    doctype = filters.get("doctype")
+    docname_filter = filters.get("docname")  # Get the optional document name filter
     columns, data = [], []
 
-    # Dynamically retrieve all fields for the specified doctype
+    # Dynamically retrieve all fields for the specified doctype, excluding layout fields
     meta = frappe.get_meta(doctype)
-    fields = [field.fieldname for field in meta.fields]
+    fields = [
+        field.fieldname for field in meta.fields
+        if field.fieldtype not in ["Tab Break", "Section Break", "Column Break"]
+    ]
 
     # Define columns dynamically based on the doctype fields
     columns.append({"label": "Document", "fieldname": "docname", "fieldtype": "Data", "width": 150})
@@ -21,11 +25,21 @@ def execute(filters=None):
     columns.append({"label": "Changed By", "fieldname": "changed_by", "fieldtype": "Data", "width": 150})
     columns.append({"label": "Changed On", "fieldname": "timestamp", "fieldtype": "Datetime", "width": 150})
 
-    # Fetch all documents for the specified doctype
-    documents = frappe.get_all(doctype, fields=["name"])
+    # Fetch documents based on filters
+    if docname_filter:
+        documents = frappe.get_all(doctype, fields=["name"], filters={"name": docname_filter})
+    else:
+        documents = frappe.get_all(doctype, fields=["name"])
 
     for doc in documents:
         docname = doc.name
+
+        # Fetch the document's current values
+        current_doc = frappe.get_doc(doctype, docname)
+        current_values = {field: current_doc.get(field) for field in fields}
+
+        # Initialize initial values from the current document
+        initial_values = {field: current_values[field] for field in fields}
 
         # Fetch all version logs for this document, ordered by modification date (ascending)
         version_logs = frappe.get_all(
@@ -35,19 +49,17 @@ def execute(filters=None):
             order_by="modified ASC"
         )
 
-        # Initialize initial values as None
-        initial_values = {field: None for field in fields}
-        current_values = {field: None for field in fields}  # To track current values for each field
+        # Update initial values dynamically based on the version logs
+        for log in version_logs:
+            version_data = json.loads(log["data"])
+            for change in version_data.get("changed", []):
+                field_name, old_value, _ = change
 
-        # Check if the first version log exists, and extract initial values from it
-        if version_logs:
-            first_version_log = json.loads(version_logs[0]["data"])
-            for change in first_version_log.get("changed", []):
-                field_name, old_value, new_value = change
-                if field_name in initial_values and initial_values[field_name] is None:
-                    initial_values[field_name] = old_value  # Set the initial value from the first change log
+                # Set the initial value from the log only if it's not already captured
+                if field_name in initial_values and initial_values[field_name] == current_values[field_name]:
+                    initial_values[field_name] = old_value
 
-        # Initialize the initial row to be added first
+        # Add the initial row with captured initial values
         initial_row = {
             "docname": docname,
             "change_instance": "Initial Value",
@@ -55,11 +67,9 @@ def execute(filters=None):
             "changed_by": "-",
             "timestamp": "-"
         }
-
-        # Add the initial row as the first row
         data.append(initial_row)
 
-        # Process version logs and capture changes
+        # Process version logs and capture changes for each change instance
         for idx, log in enumerate(version_logs):
             version_data = json.loads(log["data"])
 
@@ -77,12 +87,21 @@ def execute(filters=None):
 
             # Update the row with changes, but only for fields that have changed
             for change in version_data.get("changed", []):
-                field_name, old_value, new_value = change
+                field_name, _, new_value = change
                 if field_name in row:
                     row[field_name] = new_value  # Update the row with new values
-                    current_values[field_name] = new_value  # Track the updated value
 
             # Add the row for this change to the data
             data.append(row)
+
+        # Add the last row with current values
+        current_row = {
+            "docname": docname,
+            "change_instance": "Current Value",
+            **current_values,  # Include the current values here
+            "changed_by": "-",  # No specific user for current values
+            "timestamp": "-"    # No specific timestamp for current values
+        }
+        data.append(current_row)
 
     return columns, data
