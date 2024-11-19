@@ -7,7 +7,7 @@ from frappe.utils import get_datetime
 
 def execute(filters=None):
     doctype = filters.get("doctype")
-    docname_filter = filters.get("docname")  # Get the optional document name filter
+    docname_filter = filters.get("docname")  # Get the optional document name filter (can be a list)
     columns, data = [], []
 
     # Dynamically retrieve all fields for the specified doctype, excluding layout fields
@@ -19,17 +19,21 @@ def execute(filters=None):
 
     # Define columns dynamically based on the doctype fields
     columns.append({"label": "Document", "fieldname": "docname", "fieldtype": "Data", "width": 150})
-    columns.append({"label": "Change Instance", "fieldname": "change_instance", "fieldtype": "Data", "width": 150})
+    columns.append({
+        "label": "Change Instance",
+        "fieldname": "change_instance",
+        "fieldtype": "Link",
+        "options": "Version",  # This will create a linkable field based on the "Version" doctype
+        "width": 150
+    })
     for field in fields:
         columns.append({"label": field, "fieldname": field, "fieldtype": "Data", "width": 150})
     columns.append({"label": "Changed By", "fieldname": "changed_by", "fieldtype": "Data", "width": 150})
     columns.append({"label": "Changed On", "fieldname": "timestamp", "fieldtype": "Datetime", "width": 150})
 
     # Fetch documents based on filters
-    if docname_filter:
-        documents = frappe.get_all(doctype, fields=["name"], filters={"name": docname_filter})
-    else:
-        documents = frappe.get_all(doctype, fields=["name"])
+    docname_filters = {"name": ["in", docname_filter]} if docname_filter else {}
+    documents = frappe.get_all(doctype, fields=["name"], filters=docname_filters)
 
     for doc in documents:
         docname = doc.name
@@ -45,13 +49,18 @@ def execute(filters=None):
         version_logs = frappe.get_all(
             "Version",
             filters={"ref_doctype": doctype, "docname": docname},
-            fields=["data", "modified_by", "modified"],
+            fields=["name", "data", "modified_by", "modified"],
             order_by="modified ASC"
         )
 
         # Update initial values dynamically based on the version logs
         for log in version_logs:
             version_data = json.loads(log["data"])
+
+            # Skip logs that do not have any of the specified keys
+            if not any(key in version_data for key in ["added", "changed", "data_import", "removed", "row_changed"]):
+                continue
+
             for change in version_data.get("changed", []):
                 field_name, old_value, _ = change
 
@@ -64,8 +73,8 @@ def execute(filters=None):
             "docname": docname,
             "change_instance": "Initial Value",
             **initial_values,  # Include the initial values here
-            "changed_by": "-",
-            "timestamp": "-"
+            "changed_by": current_doc.owner,
+            "timestamp": get_datetime(current_doc.creation)
         }
         data.append(initial_row)
 
@@ -73,10 +82,14 @@ def execute(filters=None):
         for idx, log in enumerate(version_logs):
             version_data = json.loads(log["data"])
 
+            # Skip logs that do not have any of the specified keys
+            if not any(key in version_data for key in ["added", "changed", "data_import", "removed", "row_changed"]):
+                continue
+
             # Prepare a row for each version change
             row = {
                 "docname": docname,
-                "change_instance": f"Change {idx + 1}",
+                "change_instance": log["name"],
                 "changed_by": log["modified_by"],
                 "timestamp": get_datetime(log["modified"])
             }
