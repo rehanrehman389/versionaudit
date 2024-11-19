@@ -30,6 +30,6 @@ function get_filters() {
     ];
 }
 
-frappe.query_reports["Master Audit Report"] = {
+frappe.query_reports["Version Audit 2"] = {
     filters: get_filters(),
 };
