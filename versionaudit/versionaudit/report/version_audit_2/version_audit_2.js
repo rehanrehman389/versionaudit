@@ -20,9 +20,7 @@ function get_filters() {
             fieldtype: "MultiSelectList",
             get_data: function (txt) {
                 const selected_doctype = frappe.query_report.get_filter_value("doctype");
-                if (!selected_doctype) {
-                    return [];
-                }
+                if (!selected_doctype) return [];
                 return frappe.db.get_link_options(selected_doctype, txt);
             },
         },
@@ -32,9 +30,10 @@ function get_filters() {
             fieldtype: "Select",
             options: ["Document Level Diff", "Child Table Diff"],
             default: "Document Level Diff",
+            reqd: 1,
             onchange: function () {
-                frappe.query_report.refresh();  // To toggle child_table filter visibility
-            },
+                frappe.query_report.refresh();
+            }
         },
         {
             fieldname: "child_table",
@@ -45,12 +44,13 @@ function get_filters() {
                 const doctype = frappe.query_report.get_filter_value("doctype");
                 if (!doctype) return [];
 
-                return frappe.meta.get_docfield(doctype, null).then(meta_fields => {
-                    return meta_fields
-                        .filter(df => df.fieldtype === "Table")
-                        .map(df => ({ label: df.label, value: df.fieldname }));
+                return frappe.call({
+                    method: "versionaudit.versionaudit.report.version_audit_2.version_audit_2.get_child_tables",
+                    args: { doctype }
+                }).then(r => {
+                    return r.message || [];
                 });
-            },
+            }
         },
         {
             fieldname: "include_empty_fields",
@@ -63,5 +63,5 @@ function get_filters() {
 }
 
 frappe.query_reports["Version Audit 2"] = {
-    filters: get_filters()
+    filters: get_filters(),
 };
