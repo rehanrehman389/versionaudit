@@ -12,6 +12,19 @@ function get_filters() {
             onchange: function () {
                 frappe.query_report.set_filter_value("docname", null);
                 frappe.query_report.set_filter_value("child_table", null);
+
+                const doctype = frappe.query_report.get_filter_value("doctype");
+
+                // Fetch child table options via your API
+                frappe.call({
+                    method: "versionaudit.versionaudit.report.version_audit_2.version_audit_2.get_child_tables",
+                    args: { doctype },
+                    callback: function (r) {
+                        if (r.message) {
+                            frappe.query_report.set_filter_options("child_table", r.message);
+                        }
+                    },
+                });
             },
         },
         {
@@ -29,30 +42,14 @@ function get_filters() {
             label: __("View Type"),
             fieldtype: "Select",
             options: ["Document Level Diff", "Child Table Diff"],
-            default: "Document Level Diff",
-            reqd: 1,
-            onchange: function () {
-                console.log("refreshing report")
-                frappe.query_report.refresh();
-            }
+            default: "Document Level Diff"
         },
         {
             fieldname: "child_table",
             label: __("Child Table"),
             fieldtype: "Select",
             depends_on: "eval:doc.view_type === 'Child Table Diff'",
-            get_data: function () {
-                const doctype = frappe.query_report.get_filter_value("doctype");
-                if (!doctype) return [];
-                console.log(doctype)
-                return frappe.call({
-                    method: "versionaudit.versionaudit.report.version_audit_2.version_audit_2.get_child_tables",
-                    args: { doctype }
-                }).then(r => {
-                    console.log(r.message)
-                    return r.message || [];
-                });
-            }
+            options: []  // Will be set dynamically on doctype change
         },
         {
             fieldname: "include_empty_fields",
