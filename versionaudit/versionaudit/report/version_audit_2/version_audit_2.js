@@ -32,6 +32,7 @@ function get_filters() {
             default: "Document Level Diff",
             reqd: 1,
             onchange: function () {
+                console.log("refreshing report")
                 frappe.query_report.refresh();
             }
         },
