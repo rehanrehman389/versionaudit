@@ -12,20 +12,23 @@ function get_filters() {
             onchange: function () {
                 frappe.query_report.set_filter_value("docname", null);
                 frappe.query_report.set_filter_value("child_table", null);
-
+            
                 const doctype = frappe.query_report.get_filter_value("doctype");
-
-                // Fetch child table options via your API
+                console.log("Selected Doctype:", doctype);
+            
                 frappe.call({
                     method: "versionaudit.versionaudit.report.version_audit_2.version_audit_2.get_child_tables",
                     args: { doctype },
                     callback: function (r) {
+                        console.log("Child Table API Response:", r.message); // <--- Debug output
                         if (r.message) {
                             frappe.query_report.set_filter_options("child_table", r.message);
+                        } else {
+                            console.warn("No child tables returned for this doctype.");
                         }
-                    },
+                    }
                 });
-            },
+            }
         },
         {
             fieldname: "docname",
