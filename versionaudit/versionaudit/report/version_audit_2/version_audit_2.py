@@ -8,10 +8,59 @@ from frappe.utils import get_datetime
 def execute(filters=None):
     doctype = filters.get("doctype")
     docname_filter = filters.get("docname")
+    view_type = filters.get("view_type")
+    selected_child_table = filters.get("child_table")
     include_empty_fields = filters.get("include_empty_fields")
     columns, data = [], []
 
     meta = frappe.get_meta(doctype)
+    child_tables = [df.fieldname for df in meta.fields if df.fieldtype == "Table"]
+
+    if view_type == "Child Table Diff" and selected_child_table:
+        columns = [
+            {"label": "Document", "fieldname": "docname", "fieldtype": "Data", "width": 150},
+            {"label": "Change Instance", "fieldname": "change_instance", "fieldtype": "Link", "options": "Version", "width": 150},
+            {"label": "Row #", "fieldname": "idx", "fieldtype": "Int", "width": 80},
+            {"label": "Field", "fieldname": "field", "fieldtype": "Data", "width": 120},
+            {"label": "Old Value", "fieldname": "old_value", "fieldtype": "Data", "width": 150},
+            {"label": "New Value", "fieldname": "new_value", "fieldtype": "Data", "width": 150},
+            {"label": "Changed By", "fieldname": "changed_by", "fieldtype": "Data", "width": 120},
+            {"label": "Changed On", "fieldname": "timestamp", "fieldtype": "Datetime", "width": 150}
+        ]
+
+        docname_filters = {"name": ["in", docname_filter]} if docname_filter else {}
+        documents = frappe.get_all(doctype, fields=["name"], filters=docname_filters)
+
+        for doc in documents:
+            docname = doc.name
+            version_logs = frappe.get_all(
+                "Version",
+                filters={"ref_doctype": doctype, "docname": docname},
+                fields=["name", "data", "modified_by", "modified"],
+                order_by="modified ASC"
+            )
+
+            for log in version_logs:
+                version_data = json.loads(log["data"])
+                for row_change in version_data.get("row_changed", []):
+                    if row_change["parentfield"] != selected_child_table:
+                        continue
+                    idx = row_change.get("idx")
+                    for change in row_change.get("changed", []):
+                        fieldname, old_val, new_val = change
+                        data.append({
+                            "docname": docname,
+                            "change_instance": log["name"],
+                            "idx": idx,
+                            "field": fieldname,
+                            "old_value": old_val,
+                            "new_value": new_val,
+                            "changed_by": log["modified_by"],
+                            "timestamp": get_datetime(log["modified"])
+                        })
+        return columns, data
+
+    # Document level view logic
     fields = [
         field.fieldname for field in meta.fields
         if field.fieldtype not in ["Tab Break", "Section Break", "Column Break"]
@@ -21,7 +70,6 @@ def execute(filters=None):
     documents = frappe.get_all(doctype, fields=["name"], filters=docname_filters)
 
     field_value_tracker = {field: [] for field in fields}
-
     temp_data = []
 
     for doc in documents:
@@ -93,25 +141,20 @@ def execute(filters=None):
         for field in fields:
             field_value_tracker[field].append(current_row.get(field))
 
-    # Determine which fields to keep based on nulls
     if not include_empty_fields:
         fields = [field for field in fields if any(val not in [None, ""] for val in field_value_tracker[field])]
 
-    # Define final columns
     columns = [
         {"label": "Document", "fieldname": "docname", "fieldtype": "Data", "width": 150},
         {"label": "Change Instance", "fieldname": "change_instance", "fieldtype": "Link", "options": "Version", "width": 150}
     ]
-
     for field in fields:
         columns.append({"label": field, "fieldname": field, "fieldtype": "Data", "width": 150})
-
     columns.extend([
         {"label": "Changed By", "fieldname": "changed_by", "fieldtype": "Data", "width": 150},
         {"label": "Changed On", "fieldname": "timestamp", "fieldtype": "Datetime", "width": 150}
     ])
 
-    # Filter data again to remove fields not selected
     final_data = []
     for row in temp_data:
         filtered_row = {k: v for k, v in row.items() if k in fields or k in ["docname", "change_instance", "changed_by", "timestamp"]}
