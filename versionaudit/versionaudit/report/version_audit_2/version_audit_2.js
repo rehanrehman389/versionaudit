@@ -43,11 +43,12 @@ function get_filters() {
             get_data: function () {
                 const doctype = frappe.query_report.get_filter_value("doctype");
                 if (!doctype) return [];
-
+                console.log(doctype)
                 return frappe.call({
                     method: "versionaudit.versionaudit.report.version_audit_2.version_audit_2.get_child_tables",
                     args: { doctype }
                 }).then(r => {
+                    console.log(r.message)
                     return r.message || [];
                 });
             }
