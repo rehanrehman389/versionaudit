@@ -14,8 +14,8 @@ def execute(filters=None):
     columns, data = [], []
 
     meta = frappe.get_meta(doctype)
-    child_tables = [df.fieldname for df in meta.fields if df.fieldtype == "Table"]
 
+    # ----------- CHILD TABLE VIEW -----------
     if view_type == "Child Table Diff" and selected_child_table:
         columns = [
             {"label": "Document", "fieldname": "docname", "fieldtype": "Data", "width": 150},
@@ -60,7 +60,7 @@ def execute(filters=None):
                         })
         return columns, data
 
-    # Document level view logic
+    # ----------- DOCUMENT LEVEL VIEW -----------
     fields = [
         field.fieldname for field in meta.fields
         if field.fieldtype not in ["Tab Break", "Section Break", "Column Break"]
@@ -141,8 +141,12 @@ def execute(filters=None):
         for field in fields:
             field_value_tracker[field].append(current_row.get(field))
 
+    # ✅ Filter empty fields properly
     if not include_empty_fields:
-        fields = [field for field in fields if any(val not in [None, ""] for val in field_value_tracker[field])]
+        fields = [
+            field for field in fields
+            if any(val not in [None, "", "No Change"] for val in field_value_tracker[field])
+        ]
 
     columns = [
         {"label": "Document", "fieldname": "docname", "fieldtype": "Data", "width": 150},
@@ -161,3 +165,13 @@ def execute(filters=None):
         final_data.append(filtered_row)
 
     return columns, final_data
+
+
+# ✅ New API method to fetch child tables for a doctype
+@frappe.whitelist()
+def get_child_tables(doctype):
+    meta = frappe.get_meta(doctype)
+    return [
+        {"label": df.label, "value": df.fieldname}
+        for df in meta.fields if df.fieldtype == "Table"
+    ]
